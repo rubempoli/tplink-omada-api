@@ -179,6 +179,10 @@ class OmadaClient:
         await self._api.request("post", url, json=payload)
         return True
 
+    async def upgrade_controller_firmware(self, target_version: str) -> bool:
+        """Upgrade the Omada hardware controller firmware to the specified version."""
+        return await self.install_controller_firmware(target_version)
+
     async def get_controller_upgrade_status(self) -> OmadaHardwareUpgradeStatus:
         """Get the status of an ongoing hardware controller firmware upgrade."""
         url = self._api.format_url("maintenance/hardware/upgradeStatus")

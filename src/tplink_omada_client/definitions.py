@@ -88,6 +88,11 @@ class OmadaControllerType(OmadaApiData):
         """Whether this is an Omada Software Controller."""
         return self._data["isSoftController"]
 
+    @property
+    def combined_gateway(self) -> bool:
+        """Whether this controller is running on a combined gateway."""
+        return self._data.get("combinedGateway", False)
+
 
 class OmadaControllerStatus(OmadaApiData):
     """Status information returned by the Omada controller."""
