@@ -872,9 +872,7 @@ class OmadaSiteClient:
 
     async def _dhcp_url(self) -> str:
         """Return the DHCP API URL for the current controller version."""
-        if (await self._api.get_controller_version()) >= AwesomeVersion("6.2.0.0"):
-            return self._api.format_openapi_url("setting/service/dhcp", site=self._site_id)
-        return self._api.format_url("setting/service/dhcp", self._site_id)
+        return self._api.format_openapi_url("setting/service/dhcp", site=self._site_id)
 
     async def get_dhcp_reservations(self) -> list[DhcpReservation]:
         """Get all DHCP reservations for this site."""
@@ -884,7 +882,11 @@ class OmadaSiteClient:
         return [DhcpReservation(d) async for d in self._api.iterate_pages(url)]
 
     async def create_dhcp_reservation(
-        self, mac: str, ip: str, net_id: str, description: str | None = None,
+        self,
+        mac: str,
+        ip: str,
+        net_id: str,
+        description: str | None = None,
     ) -> DhcpReservation:
         """Create a new DHCP reservation. net_id is the LAN Network ID."""
         body: dict[str, object] = {
@@ -903,7 +905,10 @@ class OmadaSiteClient:
         return DhcpReservation(result)
 
     async def update_dhcp_reservation(
-        self, mac: str, ip: str | None = None, description: str | None = None,
+        self,
+        mac: str,
+        ip: str | None = None,
+        description: str | None = None,
         enabled: bool | None = None,
     ) -> DhcpReservation:
         """Update an existing DHCP reservation identified by MAC."""
@@ -922,6 +927,7 @@ class OmadaSiteClient:
         return DhcpReservation(result)
 
     async def delete_dhcp_reservation(self, mac: str) -> None:
+        """Delete an existing DHCP reservation identified by MAC."""
         await self._api.request(
             "delete",
             (await self._dhcp_url()) + "/" + mac.lower(),

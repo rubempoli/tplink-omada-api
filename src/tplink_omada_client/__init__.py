@@ -27,8 +27,8 @@ from .vpn import OmadaVpnCategory, OmadaVpnPolicy, OmadaVpnType
 
 __all__ = [
     "AccessPointPortSettings",
-    "DhcpReservation",
     "AccessPointRadioSettings",
+    "DhcpReservation",
     "GatewayPortSettings",
     "OmadaClient",
     "OmadaClientFixedAddress",

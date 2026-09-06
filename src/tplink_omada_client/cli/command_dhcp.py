@@ -24,6 +24,7 @@ def _validate_mac(mac: str) -> str:
 
 
 async def command_dhcp_list(args) -> int:
+    """Handles the dhcp reservation list command."""
     controller = get_target_argument(args)
     config = get_target_config(controller)
     async with to_omada_connection(config) as client:
@@ -41,19 +42,24 @@ async def command_dhcp_list(args) -> int:
 
 
 async def command_dhcp_create(args) -> int:
+    """Handles the dhcp create reservation command."""
     mac = _validate_mac(args["mac"])
     controller = get_target_argument(args)
     config = get_target_config(controller)
     async with to_omada_connection(config) as client:
         site_client = await client.get_site_client(config.site)
         r = await site_client.create_dhcp_reservation(
-            mac, args["ip"], args["net_id"], args.get("name"),
+            mac,
+            args["ip"],
+            args["net_id"],
+            args.get("name"),
         )
     print(f"Created: {r.mac} \u2192 {r.ip}")
     return 0
 
 
 async def command_dhcp_modify(args) -> int:
+    """Handles the dhcp modify reservation command."""
     mac = _validate_mac(args["mac"])
     controller = get_target_argument(args)
     config = get_target_config(controller)
@@ -69,6 +75,7 @@ async def command_dhcp_modify(args) -> int:
 
 
 async def command_dhcp_delete(args) -> int:
+    """Handles the dhcp delete reservation command."""
     mac = _validate_mac(args["mac"])
     controller = get_target_argument(args)
     config = get_target_config(controller)
@@ -80,6 +87,7 @@ async def command_dhcp_delete(args) -> int:
 
 
 def arg_parser(subparsers: _SubParsersAction) -> None:
+    """Configures arguments parser for the dhcp coommand and subcommands."""
     dhcp_parser = subparsers.add_parser("dhcp", help="DHCP reservation management")
     dhcp_sub = dhcp_parser.add_subparsers(title="commands", metavar="command")
 
