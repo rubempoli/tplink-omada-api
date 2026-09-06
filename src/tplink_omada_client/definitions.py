@@ -80,6 +80,63 @@ class OmadaControllerInfo(OmadaApiData):
         return self._data.get("omadaCloudUrl")
 
 
+class OmadaControllerType(OmadaApiData):
+    """Information returned by the Omada controller type endpoint."""
+
+    @property
+    def is_soft_controller(self) -> bool:
+        """Whether this is an Omada Software Controller."""
+        return self._data["isSoftController"]
+
+    @property
+    def combined_gateway(self) -> bool:
+        """Whether this controller is running on a combined gateway."""
+        return self._data.get("combinedGateway", False)
+
+
+class OmadaControllerStatus(OmadaApiData):
+    """Status information returned by the Omada controller."""
+
+    @property
+    def name(self) -> str | None:
+        """Controller display name."""
+        name = self._data.get("name")
+        if not isinstance(name, str):
+            return None
+
+        name = name.strip()
+        return name or None
+
+    @property
+    def mac(self) -> str:
+        """Controller MAC address."""
+        return self._data["macAddress"]
+
+    @property
+    def uptime(self) -> int:
+        """Controller uptime in seconds."""
+        return self._data["upTime"]
+
+    @property
+    def controller_version(self) -> str:
+        """Controller version reported by the status endpoint."""
+        return self._data["controllerVersion"]
+
+    @property
+    def current_version(self) -> str:
+        """Currently installed controller version."""
+        return self.controller_version
+
+    @property
+    def model(self) -> str:
+        """Controller hardware model, or a generic fallback."""
+        model = self._data.get("model")
+        if isinstance(model, str) and (model := model.strip()):
+            return model
+
+        return "Controller"
+
+
 class DeviceStatus(IntEnum):
     """Known status codes for devices."""
 
@@ -301,6 +358,31 @@ class RadioId(IntEnum):
     def _missing_(cls, _):
         return RadioId.UNKNOWN
 
+    @property
+    def settings_key(self) -> str:
+        """Name of the field the controller uses for this radio's settings."""
+        return _RADIO_SETTINGS_KEYS[self]
+
+    @property
+    def status_key(self) -> str:
+        """Name of the field the controller uses for this radio's live status."""
+        return _RADIO_STATUS_KEYS[self]
+
+
+_RADIO_SETTINGS_KEYS = {
+    RadioId.FREQ_2_4: "radioSetting2g",
+    RadioId.FREQ_5_1: "radioSetting5g",
+    RadioId.FREQ_5_2: "radioSetting5g2",
+    RadioId.FREQ_6: "radioSetting6g",
+}
+
+_RADIO_STATUS_KEYS = {
+    RadioId.FREQ_2_4: "wp2g",
+    RadioId.FREQ_5_1: "wp5g",
+    RadioId.FREQ_5_2: "wp5g2",
+    RadioId.FREQ_6: "wp6g",
+}
+
 
 class WifiMode(IntEnum):
     """WiFi modes."""
@@ -333,6 +415,34 @@ class LedSetting(IntEnum):
         return LedSetting.UNKNOWN
 
 
+class ChannelWidth(IntEnum):
+    """Channel width of an access point radio.
+
+    The values form a single ladder shared by all bands. The AUTO_* members let
+    the access point pick any width up to the widest one named, and the
+    controller offers only one of them per band: AUTO_40_20 on 2.4GHz,
+    AUTO_80_40_20 on 5GHz, and AUTO_160_80_40_20 on 6GHz.
+
+    Which fixed widths a radio accepts depends on the hardware and on the
+    regulatory region, so the controller is the authority on what is legal.
+    """
+
+    UNKNOWN = -1
+    WIDTH_20 = 2
+    WIDTH_40 = 3
+    AUTO_40_20 = 4
+    WIDTH_80 = 5
+    AUTO_80_40_20 = 6
+    WIDTH_160 = 7
+    AUTO_160_80_40_20 = 8
+    WIDTH_240 = 9
+    WIDTH_320 = 10
+
+    @classmethod
+    def _missing_(cls, _):
+        return ChannelWidth.UNKNOWN
+
+
 class OmadaHardwareUpdateInfo(OmadaApiData):
     """Information about available hardware firmware updates."""
 
@@ -354,7 +464,25 @@ class OmadaHardwareUpdateInfo(OmadaApiData):
     @property
     def release_notes(self) -> str | None:
         """Release notes for the latest firmware version."""
-        return self._data.get("fwReleaseLog", None)
+        notes = self._data.get("fwReleaseLog")
+        if notes is None:
+            notes = self._data.get("releaseLog")
+        return notes
+
+    @property
+    def download_link(self) -> str | None:
+        """Download link for the available controller update."""
+        download_link = self._data.get("downloadLink")
+        if not isinstance(download_link, str):
+            return None
+
+        download_link = download_link.strip()
+        return download_link or None
+
+    @property
+    def release_url(self) -> str | None:
+        """URL with information or a download for the latest release."""
+        return self.download_link
 
 
 class OmadaSoftwareUpdateInfo(OmadaApiData):
@@ -378,21 +506,75 @@ class OmadaSoftwareUpdateInfo(OmadaApiData):
     @property
     def release_notes(self) -> str | None:
         """Release notes for the latest software version."""
-        return self._data.get("releaseLog", None)
+        notes = self._data.get("releaseLog")
+        if notes is None:
+            notes = self._data.get("fwReleaseLog")
+        return notes
+
+    @property
+    def download_link(self) -> str | None:
+        """Download link for the available controller update."""
+        download_link = self._data.get("downloadLink")
+        if not isinstance(download_link, str):
+            return None
+
+        download_link = download_link.strip()
+        return download_link or None
+
+    @property
+    def release_url(self) -> str | None:
+        """URL with information or a download for the latest release."""
+        return self.download_link
 
 
 class OmadaControllerUpdateInfo(OmadaApiData):
-    """Information about available controller and device firmware updates."""
+    """Normalized information about available controller updates."""
 
     @property
     def hardware(self) -> OmadaHardwareUpdateInfo | None:
         """Information about available hardware controller firmware updates."""
-        return OmadaHardwareUpdateInfo(self._data["hardware"]) if "hardware" in self._data else None
+        if "hardware" not in self._data:
+            return None
+
+        return OmadaHardwareUpdateInfo(self._data["hardware"])
 
     @property
     def software(self) -> OmadaSoftwareUpdateInfo | None:
         """Information about available software controller updates."""
-        return OmadaSoftwareUpdateInfo(self._data["software"]) if "software" in self._data else None
+        if "software" not in self._data:
+            return None
+
+        return OmadaSoftwareUpdateInfo(self._data["software"])
+
+    @property
+    def update(self) -> OmadaHardwareUpdateInfo | OmadaSoftwareUpdateInfo | None:
+        """Update information for the current controller type."""
+        return self.hardware or self.software
+
+    @property
+    def upgrade(self) -> bool:
+        """Whether a controller update is available."""
+        return self.update.upgrade if self.update is not None else False
+
+    @property
+    def current_version(self) -> str | None:
+        """Currently installed controller version."""
+        return self.update.current_version if self.update is not None else None
+
+    @property
+    def latest_version(self) -> str | None:
+        """Latest available controller version."""
+        return self.update.latest_version if self.update is not None else None
+
+    @property
+    def release_notes(self) -> str | None:
+        """Release notes for the latest controller version."""
+        return self.update.release_notes if self.update is not None else None
+
+    @property
+    def release_url(self) -> str | None:
+        """URL with information or a download for the latest release."""
+        return self.update.release_url if self.update is not None else None
 
 
 class OmadaHardwareUpgradeStatus(OmadaApiData):

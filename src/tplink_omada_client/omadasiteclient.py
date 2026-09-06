@@ -16,16 +16,21 @@ from .clients import (
 )
 from .definitions import (
     BandwidthControl,
+    ChannelWidth,
     Eth802Dot1X,
     LedSetting,
     LinkDuplex,
     LinkSpeed,
     NetworkTagsSetting,
     PoEMode,
+    RadioId,
 )
 from .devices import (
     OmadaAccesPointLanPortSettings,
     OmadaAccessPoint,
+    OmadaAccessPointRadioSettings,
+    OmadaApChannel,
+    OmadaApRadioChannels,
     OmadaDevice,
     OmadaFirmwareUpdate,
     OmadaGateway,
@@ -43,6 +48,7 @@ from .exceptions import (
 )
 from .networks import DhcpReservation
 from .omadaapiconnection import OmadaApiConnection
+from .topology import OmadaTopology
 from .vpn import _VPN_LIST_ENDPOINTS, OmadaVpnCategory, OmadaVpnPolicy
 
 
@@ -107,6 +113,21 @@ class AccessPointPortSettings:
     enable_poe: bool | None = None
     vlan_enable: bool | None = None
     vlan_id: int | None = None
+
+
+@dataclass
+class AccessPointRadioSettings:
+    """
+    Settings that can be applied to one radio of an access point
+
+    Specify the values you want to modify. The remaining values will be unaffected
+    """
+
+    radio_enabled: bool | None = None
+    channel_width: ChannelWidth | None = None
+    # The 802.11 channel number, e.g. 36. Use 0 to let the access point choose.
+    channel: int | None = None
+    tx_power: int | None = None
 
 
 @dataclass
@@ -261,6 +282,13 @@ class OmadaSiteClient:
         """Get a single device by mac."""
         # So wasteful
         return next(d for d in await self.get_devices() if d.mac == mac)
+
+    async def get_topology(self) -> OmadaTopology:
+        """Get the site's physical network topology tree, rooted at its gateway(s)."""
+
+        result = await self._api.request("get", self._api.format_url("topology", self._site_id))
+
+        return OmadaTopology(result)
 
     async def get_switches(self) -> list[OmadaSwitch]:
         """Get the list of switches on the site."""
@@ -429,6 +457,83 @@ class OmadaSiteClient:
         updated_ap = OmadaAccessPoint(result)
         # The caller probably only cares about the updated port status
         return next(p for p in updated_ap.lan_port_settings if p.port_name == port_name)
+
+    async def get_access_point_channels(self, mac_or_device: str | OmadaDevice) -> list[OmadaApRadioChannels]:
+        """Get the channels available to each radio of an access point.
+
+        The available channels depend on the hardware and on the regulatory
+        region, so they have to be read from the device.
+        """
+        mac = mac_or_device.mac if isinstance(mac_or_device, OmadaDevice) else mac_or_device
+        result = await self._api.request("get", self._api.format_url(f"eaps/{mac}/channelInfo", self._site_id))
+        return [OmadaApRadioChannels(r) for r in result.get("data", [])]
+
+    async def set_access_point_radio_settings(
+        self,
+        mac_or_device: str | OmadaDevice,
+        band: RadioId,
+        settings: AccessPointRadioSettings,
+    ) -> OmadaAccessPointRadioSettings:
+        """Update the settings of one radio on an access point.
+
+        Note that the access point takes a little while to apply the change, and
+        a DFS channel only comes into use once its radar check has completed, so
+        the radio status will not reflect the new settings immediately.
+        """
+        access_point = await self.get_access_point(mac_or_device)
+        existing = access_point.radio_settings(band)
+        if existing is None:
+            raise InvalidDevice(f"Access point {access_point.mac} has no {band.name} radio")
+
+        # The controller replaces the whole radio settings object, so start from
+        # the current values and apply only what the caller asked to change.
+        radio_payload = dict(existing.raw_data)
+
+        if settings.radio_enabled is not None:
+            radio_payload["radioEnable"] = settings.radio_enabled
+        if settings.channel_width is not None:
+            # The controller expects the channel width as a string
+            radio_payload["channelWidth"] = str(settings.channel_width.value)
+        if settings.tx_power is not None:
+            radio_payload["txPower"] = settings.tx_power
+        if settings.channel is not None:
+            if settings.channel == 0:
+                # Automatic channel selection. The frequency has to be cleared too.
+                radio_payload["channel"] = 0
+                radio_payload["freq"] = 0
+            else:
+                channel = await self._find_access_point_channel(access_point, band, settings.channel)
+                radio_payload["channel"] = channel.index
+                radio_payload["freq"] = channel.frequency
+
+        payload = {"channelLimitType": 0, band.settings_key: radio_payload}
+
+        await self._api.request(
+            "put",
+            self._api.format_url(f"eaps/{access_point.mac}/config/radios", self._site_id),
+            json=payload,
+        )
+
+        # The update response doesn't include the new settings, so read them back
+        updated_ap = await self.get_access_point(access_point.mac)
+        updated = updated_ap.radio_settings(band)
+        if updated is None:
+            raise InvalidDevice(f"Access point {access_point.mac} no longer reports a {band.name} radio")
+        return updated
+
+    async def _find_access_point_channel(self, access_point: OmadaAccessPoint, band: RadioId, channel: int) -> OmadaApChannel:
+        """Map an 802.11 channel number to the channel the controller expects."""
+        radios = await self.get_access_point_channels(access_point)
+        if band.value >= len(radios):
+            raise InvalidDevice(f"Access point {access_point.mac} has no channel list for its {band.name} radio")
+
+        available = radios[band.value].channels
+        for candidate in available:
+            if candidate.channel == channel:
+                return candidate
+
+        supported = ", ".join(str(c.channel) for c in available)
+        raise InvalidDevice(f"Channel {channel} is not available on the {band.name} radio of {access_point.mac}. Available: {supported}")
 
     def _build_base_port_payload(
         self,
