@@ -46,8 +46,25 @@ Once you have successfully targeted a controller you can test that things are wo
 ```sh
 $ omada devices
 ```
-
 This will list all the devices being managed by your controller.
+
+### DHCP
+
+List, create, modify, and delete DHCP reservations:
+
+```sh
+$ omada dhcp list
+$ omada dhcp create --mac AA:BB:CC:11:22:33 --ip 192.168.1.100 --net-id <network-id> --name "my-device"
+$ omada dhcp modify --mac AA:BB:CC:11:22:33 --ip 192.168.1.101
+$ omada dhcp delete --mac AA:BB:CC:11:22:33
+```
+
+To find the network ID for `--net-id`, list LAN networks:
+
+```sh
+$ omada devices  # list devices including their networks
+```
+
 
 To see a list of all the available commands, run:
 

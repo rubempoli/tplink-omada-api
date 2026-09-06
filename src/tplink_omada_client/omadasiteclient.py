@@ -46,6 +46,7 @@ from .exceptions import (
     InvalidDevice,
     OmadaClientException,
 )
+from .networks import DhcpReservation
 from .omadaapiconnection import OmadaApiConnection
 from .topology import OmadaTopology
 from .vpn import _VPN_LIST_ENDPOINTS, OmadaVpnCategory, OmadaVpnPolicy
@@ -868,3 +869,60 @@ class OmadaSiteClient:
         """Enable or disable a VPN policy by id. Works for every VPN type."""
         url = self._api.format_openapi_url(f"vpn/{policy_id}/status", version="v1", site=self._site_id)
         await self._api.request("patch", url, json={"status": enabled})
+
+    async def _dhcp_url(self) -> str:
+        """Return the DHCP API URL for the current controller version."""
+        if (await self._api.get_controller_version()) >= AwesomeVersion("6.2.0.0"):
+            return self._api.format_openapi_url("setting/service/dhcp", site=self._site_id)
+        return self._api.format_url("setting/service/dhcp", self._site_id)
+
+    async def get_dhcp_reservations(self) -> list[DhcpReservation]:
+        """Get all DHCP reservations for this site."""
+        url = await self._dhcp_url()
+        if (await self._api.get_controller_version()) >= AwesomeVersion("6.2.0.0"):
+            return [DhcpReservation(d) async for d in self._api.iterate_pages_openapi_get(url)]
+        return [DhcpReservation(d) async for d in self._api.iterate_pages(url)]
+
+    async def create_dhcp_reservation(
+        self, mac: str, ip: str, net_id: str, description: str | None = None,
+    ) -> DhcpReservation:
+        """Create a new DHCP reservation. net_id is the LAN Network ID."""
+        body: dict[str, object] = {
+            "mac": mac,
+            "ip": ip,
+            "netId": net_id,
+            "status": True,
+        }
+        if description:
+            body["description"] = description
+        result = await self._api.request(
+            "post",
+            await self._dhcp_url(),
+            json=body,
+        )
+        return DhcpReservation(result)
+
+    async def update_dhcp_reservation(
+        self, mac: str, ip: str | None = None, description: str | None = None,
+        enabled: bool | None = None,
+    ) -> DhcpReservation:
+        """Update an existing DHCP reservation identified by MAC."""
+        body: dict[str, object] = {}
+        if ip is not None:
+            body["ip"] = ip
+        if description is not None:
+            body["description"] = description
+        if enabled is not None:
+            body["status"] = enabled
+        result = await self._api.request(
+            "patch",
+            (await self._dhcp_url()) + "/" + mac.lower(),
+            json=body,
+        )
+        return DhcpReservation(result)
+
+    async def delete_dhcp_reservation(self, mac: str) -> None:
+        await self._api.request(
+            "delete",
+            (await self._dhcp_url()) + "/" + mac.lower(),
+        )
