@@ -9,6 +9,7 @@ from typing import Any
 
 from .definitions import (
     BandwidthControl,
+    ChannelWidth,
     DeviceStatus,
     DeviceStatusCategory,
     Eth802Dot1X,
@@ -22,6 +23,7 @@ from .definitions import (
     OmadaApiData,
     PoEMode,
     PortType,
+    RadioId,
 )
 
 
@@ -389,6 +391,150 @@ class OmadaAccesPointLanPortSettings(OmadaApiData):
         return self._data.get("poeOutEnable", False)
 
 
+class OmadaAccessPointRadioSettings(OmadaApiData):
+    """The configured settings of a single radio on an access point.
+
+    These are the values the controller has been asked to apply. The radio can
+    take a minute or two to adopt them, and a DFS channel is only used once the
+    radar check completes, so the live state can lag behind.
+    """
+
+    @property
+    def radio_enabled(self) -> bool:
+        """True if the radio is switched on."""
+        return self._data.get("radioEnable", False)
+
+    @property
+    def channel_width(self) -> ChannelWidth:
+        """The configured channel width."""
+        return ChannelWidth(int(self._data.get("channelWidth", -1)))
+
+    @property
+    def channel_index(self) -> int:
+        """The configured channel, as a 1-based index into the radio's channel list.
+
+        This is not the channel number. 0 means the access point picks the
+        channel automatically. Use OmadaApChannel to map between the two.
+        """
+        return int(self._data.get("channel", 0))
+
+    @property
+    def auto_channel(self) -> bool:
+        """True if the access point chooses the channel itself."""
+        return self.channel_index == 0
+
+    @property
+    def frequency(self) -> int:
+        """Centre frequency of the configured channel, in MHz. 0 when automatic."""
+        return self._data.get("freq", 0)
+
+    @property
+    def wireless_mode(self) -> int:
+        """The 802.11 mode of the radio. -2 means automatic."""
+        return self._data.get("wirelessMode", -2)
+
+    @property
+    def tx_power(self) -> int:
+        """Transmit power in dBm."""
+        return self._data.get("txPower", 0)
+
+    @property
+    def tx_power_level(self) -> int:
+        """Transmit power preset (0=Low, 1=Medium, 2=High, 3=Custom, 4=Auto)."""
+        return self._data.get("txPowerLevel", 0)
+
+
+class OmadaAccessPointRadioStatus(OmadaApiData):
+    """The live state of a single radio on an access point.
+
+    This is what the radio is actually doing, which can differ from the
+    configured settings while a change is being applied.
+    """
+
+    @property
+    def actual_channel(self) -> str:
+        """The channel currently in use, e.g. '36  / 5180MHz'."""
+        return self._data.get("actualChannel", "")
+
+    @property
+    def band_width(self) -> str:
+        """The channel width currently in use, e.g. '40MHz'."""
+        return self._data.get("bandWidth", "")
+
+    @property
+    def tx_power(self) -> int:
+        """Transmit power currently in use, in dBm."""
+        return self._data.get("txPower", 0)
+
+    @property
+    def max_tx_rate(self) -> int:
+        """Maximum PHY rate available at the current channel width, in Mbps."""
+        return self._data.get("maxTxRate", 0)
+
+    @property
+    def rx_utilization(self) -> int:
+        """Percentage of airtime spent receiving."""
+        return self._data.get("rxUtil", 0)
+
+    @property
+    def tx_utilization(self) -> int:
+        """Percentage of airtime spent transmitting."""
+        return self._data.get("txUtil", 0)
+
+    @property
+    def interference_utilization(self) -> int:
+        """Percentage of airtime lost to interference."""
+        return self._data.get("interUtil", 0)
+
+    @property
+    def wireless_mode(self) -> str:
+        """The 802.11 mode in use, e.g. 'a/n/ac mixed'."""
+        return self._data.get("rdMode", "")
+
+
+class OmadaApChannel(OmadaApiData):
+    """A channel that an access point radio can be set to.
+
+    The controller identifies channels by a 1-based index rather than by their
+    channel number, and the list depends on the regulatory region, so it has to
+    be read from the device rather than assumed.
+    """
+
+    @property
+    def index(self) -> int:
+        """The 1-based index the controller uses to select this channel."""
+        return self._data["value"]
+
+    @property
+    def channel(self) -> int:
+        """The 802.11 channel number."""
+        return self._data["channelValue"]
+
+    @property
+    def frequency(self) -> int:
+        """Centre frequency of the channel, in MHz."""
+        return self._data["freq"]
+
+    @property
+    def name(self) -> str:
+        """Display name of the channel, e.g. '36/5180MHz'."""
+        return self._data.get("channelName", "")
+
+
+class OmadaApRadioChannels(OmadaApiData):
+    """The channels available to one radio of an access point."""
+
+    @property
+    def band(self) -> str:
+        """The band these channels belong to, e.g. '5G'."""
+        return self._data.get("band", "")
+
+    @property
+    def channels(self) -> list[OmadaApChannel]:
+        """The channels the radio can be set to."""
+        return [OmadaApChannel(c) for c in self._data.get("channelList", [])]
+
+
 class OmadaAccessPoint(OmadaDetailedDevice):
     """Details of an Access Point connected to the controller."""
 
@@ -444,6 +590,25 @@ class OmadaAccessPoint(OmadaDetailedDevice):
         if uplink is None:
             return None
         return OmadaUplink(uplink)
+
+    def radio_settings(self, band: RadioId) -> OmadaAccessPointRadioSettings | None:
+        """The configured settings of one radio, or None if the AP has no such radio."""
+        data = self._data.get(band.settings_key)
+        if data is None:
+            return None
+        return OmadaAccessPointRadioSettings(data)
+
+    def radio_status(self, band: RadioId) -> OmadaAccessPointRadioStatus | None:
+        """The live state of one radio, or None if the AP has no such radio."""
+        data = self._data.get(band.status_key)
+        if data is None:
+            return None
+        return OmadaAccessPointRadioStatus(data)
+
+    @property
+    def radio_bands(self) -> list[RadioId]:
+        """The radios this access point actually has."""
+        return [band for band in RadioId if band != RadioId.UNKNOWN and band.settings_key in self._data]
 
 
 class OmadaSwitchPortDetails(OmadaSwitchPort):

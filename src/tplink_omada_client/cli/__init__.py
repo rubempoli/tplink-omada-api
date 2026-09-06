@@ -24,6 +24,7 @@ from . import (
     command_port_profiles,
     command_reboot,
     command_reconnect_client,
+    command_set_ap_radio,
     command_set_client_name,
     command_set_device_led,
     command_switch,
@@ -65,6 +66,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     command_reboot.arg_parser(subparsers)
     command_reconnect_client.arg_parser(subparsers)
     command_certificate.arg_parser(subparsers)
+    command_set_ap_radio.arg_parser(subparsers)
     command_set_client_name.arg_parser(subparsers)
     command_set_device_led.arg_parser(subparsers)
     command_switch.arg_parser(subparsers)
